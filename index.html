@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+
+    <h2>Dashboard</h2>
+
+    <!-- Upload zone -->
+    <div id="upload-zone">
+        <input type="file" id="file-input" accept=".csv" hidden />
+        <p>CSV file<button onclick="document.getElementById('file-input').click()">Choose File</button>
+        </p>
+        <!-- <p>Expected columns: device_id, local_timestamp,</p> -->
+    </div>
+
+    <!-- Device / Sensor always visible -->
+    <div>
+        <label for="device-select">Device:</label>
+        <select id="device-select">
+            <option value="">— load a file —</option>
+        </select>
+
+        <label for="sensor-select">Sensor:</label>
+        <select id="sensor-select">
+            <option value="">— load a file —</option>
+        </select>
+    </div>
+
+    <!-- Export shown after data loads -->
+    <div id="controls" hidden>
+        <label>From: <input type="time" id="time-from" step="1" /></label>
+        <label>To: <input type="time" id="time-to" step="1" /></label>
+        <button id="export-btn">Export CSV</button>
+    </div>
+
+    <!-- Stat cards -->
+    <div id="cards" hidden>
+        <p>Latest Value: <strong id="stat-latest">—</strong></p>
+        <p>Average: <strong id="stat-avg">—</strong></p>
+        <p>Min: <strong id="stat-min">—</strong></p>
+        <p>Max: <strong id="stat-max">—</strong></p>
+        <p>Readings: <strong id="stat-count">—</strong></p>
+    </div>
+
+    <!-- Chart -->
+    <div id="chart-section" hidden>
+        <h3 id="chart-title">Sensor Data</h3>
+        <canvas id="chart-main" height="100"></canvas>
+    </div>
+
+    <!-- <script>
+        // ── State ───────────────────────────────────────────────────────
+        let allRows = [];   // { device_id, timestamp (str), _ts (Date), sensors: [{id, data, fault}] }
+        let mainChart = null;
+
+        // ── CSV Parser ──────────────────────────────────────────────────
+        // Handles Windows \r\n and quoted fields containing commas/JSON
+        function parseCSV(text) {
+            // Normalise line endings
+            text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+            const rows = [];
+            const lines = text.trim().split('\n');
+            const headers = splitCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+
+            for (let i = 1; i < lines.length; i++) {
+                const vals = splitCSVLine(lines[i]);
+                if (vals.length < headers.length) continue;
+                const row = {};
+                headers.forEach((h, idx) => row[h] = vals[idx].trim());
+
+                // Parse timestamp — try local_timestamp first, then utc_timestamp, then timestamp
+                const tsField = row['local_timestamp'] || row['utc_timestamp'] || row['timestamp'] || '';
+                row._ts = new Date(tsField);
+                if (isNaN(row._ts)) continue;
+                row.timestamp = tsField;
+
+                // Parse sensors JSON array
+                try {
+                    row.sensors = JSON.parse(row['sensors'] || '[]');
+                } catch (e) {
+                    row.sensors = [];
+                }
+
+                rows.push(row);
+            }
+            return rows;
+        }
+
+        // Splits one CSV line respecting quoted fields
+        function splitCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const ch = line[i];
+                if (ch === '"') {
+                    // Escaped quote inside quoted field
+                    if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+                    else inQuotes = !inQuotes;
+                } else if (ch === ',' && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += ch;
+                }
+            }
+            result.push(current);
+            return result;
+        }
+
+
+        // ── Upload ──────────────────────────────────────────────────────
+        const zone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+
+        zone.addEventListener('dragover', e => e.preventDefault());
+        zone.addEventListener('drop', e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); });
+        fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                allRows = parseCSV(e.target.result);
+                if (!allRows.length) { alert('No valid rows found.'); return; }
+                zone.hidden = true;
+                document.getElementById('controls').hidden = false;
+                document.getElementById('cards').hidden = false;
+                document.getElementById('chart-section').hidden = false;
+
+                populateDevices();
+                populateSensors();
+
+                // Set default time range from data
+                const times = allRows.map(r => r._ts).sort((a, b) => a - b);
+                const pad = n => String(n).padStart(2, '0');
+                const fmtTime = d => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                document.getElementById('time-from').value = fmtTime(times[0]);
+                document.getElementById('time-to').value = fmtTime(times[times.length - 1]);
+
+                renderDashboard();
+            };
+            reader.readAsText(file);
+        }
+
+        // ── Populate dropdowns ──────────────────────────────────────────
+        function populateDevices() {
+            const sel = document.getElementById('device-select');
+            const ids = [...new Set(allRows.map(r => r.device_id))].sort();
+            sel.innerHTML = ids.map(id => `<option value="${id}">${id}</option>`).join('');
+        }
+
+        function populateSensors() {
+            const deviceId = document.getElementById('device-select').value;
+            const sensorIds = [...new Set(
+                allRows
+                    .filter(r => r.device_id === deviceId)
+                    .flatMap(r => r.sensors.map(s => s.id))
+            )].sort();
+
+            const sel = document.getElementById('sensor-select');
+            sel.innerHTML = sensorIds.map(id => `<option value="${id}">${id}</option>`).join('');
+        }
+
+        document.getElementById('device-select').addEventListener('change', () => { populateSensors(); renderDashboard(); });
+        document.getElementById('sensor-select').addEventListener('change', renderDashboard);
+        document.getElementById('time-from').addEventListener('change', renderDashboard);
+        document.getElementById('time-to').addEventListener('change', renderDashboard);
+
+        // ── Time helpers ────────────────────────────────────────────────
+        function timeToSeconds(str) {
+            const [h, m, s] = str.split(':').map(Number);
+            return h * 3600 + m * 60 + (s || 0);
+        }
+        function rowTimeSeconds(d) {
+            return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+        }
+
+        // ── Render ──────────────────────────────────────────────────────
+        function renderDashboard() {
+            const deviceId = document.getElementById('device-select').value;
+            const sensorId = document.getElementById('sensor-select').value;
+            const fromSec = timeToSeconds(document.getElementById('time-from').value || '00:00:00');
+            const toSec = timeToSeconds(document.getElementById('time-to').value || '23:59:59');
+
+            // Filter rows by device + time interval, then extract chosen sensor reading
+            const points = allRows
+                .filter(r => r.device_id === deviceId)
+                .filter(r => { const s = rowTimeSeconds(r._ts); return s >= fromSec && s <= toSec; })
+                .sort((a, b) => a._ts - b._ts)
+                .map(r => {
+                    const s = r.sensors.find(s => s.id === sensorId);
+                    return s && !s.fault ? { ts: r._ts, value: s.data } : null;
+                })
+                .filter(Boolean);
+
+            if (!points.length) {
+                updateCards(null);
+                clearChart();
+                return;
+            }
+
+            updateCards(points);
+            drawChart(points, sensorId);
+        }
+
+        // ── Stat cards ──────────────────────────────────────────────────
+        function updateCards(points) {
+            if (!points) {
+                ['stat-latest', 'stat-avg', 'stat-min', 'stat-max', 'stat-count'].forEach(id => {
+                    document.getElementById(id).textContent = '—';
+                });
+                return;
+            }
+            const vals = points.map(p => p.value);
+            const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+            document.getElementById('stat-latest').textContent = vals[vals.length - 1].toFixed(2);
+            document.getElementById('stat-avg').textContent = avg.toFixed(2);
+            document.getElementById('stat-min').textContent = Math.min(...vals).toFixed(2);
+            document.getElementById('stat-max').textContent = Math.max(...vals).toFixed(2);
+            document.getElementById('stat-count').textContent = vals.length;
+        }
+
+        // ── Chart ───────────────────────────────────────────────────────
+        function drawChart(points, sensorId) {
+            document.getElementById('chart-title').textContent = 'Sensor: ' + sensorId;
+            const labels = points.map(p => p.ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const data = points.map(p => p.value);
+
+            if (mainChart) mainChart.destroy();
+            const ctx = document.getElementById('chart-main').getContext('2d');
+            mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: sensorId,
+                        data,
+                        borderColor: '#0077cc',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: data.length > 100 ? 0 : 3,
+                        pointHoverRadius: 5,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: true } },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 8 } }
+                    }
+                }
+            });
+        }
+
+        function clearChart() {
+            if (mainChart) { mainChart.destroy(); mainChart = null; }
+        }
+
+        // ── Export ──────────────────────────────────────────────────────
+        document.getElementById('export-btn').addEventListener('click', () => {
+            const deviceId = document.getElementById('device-select').value;
+            const sensorId = document.getElementById('sensor-select').value;
+            const fromSec = timeToSeconds(document.getElementById('time-from').value || '00:00:00');
+            const toSec = timeToSeconds(document.getElementById('time-to').value || '23:59:59');
+
+            const points = allRows
+                .filter(r => r.device_id === deviceId)
+                .filter(r => { const s = rowTimeSeconds(r._ts); return s >= fromSec && s <= toSec; })
+                .sort((a, b) => a._ts - b._ts)
+                .map(r => {
+                    const s = r.sensors.find(s => s.id === sensorId);
+                    return s ? { timestamp: r.timestamp, value: s.data, fault: s.fault } : null;
+                })
+                .filter(Boolean);
+
+            if (!points.length) { alert('No data to export.'); return; }
+
+            const header = 'device_id,sensor_id,timestamp,value,fault';
+            const body = points.map(p => `${deviceId},${sensorId},${p.timestamp},${p.value},${p.fault}`).join('\n');
+            const blob = new Blob([header + '\n' + body], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${deviceId}_${sensorId}_export.csv`;
+            a.click();
+        });
+    </script> -->
+</body>
+
+</html>
