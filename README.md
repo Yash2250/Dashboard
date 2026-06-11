@@ -104,18 +104,6 @@ cd csv-sensor-dashboard
 
 Open `index.html` in your browser.
 
-#### Option 2: Start a Local Server
-
-```bash
-python -m http.server 8000
-```
-
-Open:
-
-```text
-http://localhost:8000
-```
-
 ---
 
 ## 🧠 How It Works
