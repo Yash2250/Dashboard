@@ -1,183 +1,174 @@
-(() => {
-	'use strict';
+let csvData = [];
+let chart = null;
 
-	const fileInput = document.getElementById('fileInput');
-	const selectDevice = document.getElementById('selectDevice');
-	const selectTimeRange = document.getElementById('selectTimeRange');
-	const tableHead = document.querySelector('#table thead');
-	const tableBody = document.querySelector('#table tbody');
-	const ctx = document.getElementById('myChart').getContext('2d');
+const fileInput = document.getElementById("csvFile");
+const sensorSelect = document.getElementById("sensorSelect");
+const timestampText = document.getElementById("timestampText");
 
-	let parsedData = [];
-	let chart = null;
+fileInput.addEventListener("change", function (e) {
 
-	fileInput.addEventListener('change', handleFile);
-	selectDevice.addEventListener('change', updateChart);
-	selectTimeRange.addEventListener('change', updateChart);
+    const file = e.target.files[0];
 
-	function handleFile(e) {
-		const file = e.target.files && e.target.files[0];
-		if (!file) return;
+    Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
 
-		const reader = new FileReader();
-		reader.onload = () => {
-			const text = reader.result;
-			parsedData = parseCSV(text);
-			renderTable(parsedData);
-			populateDeviceSelect(parsedData);
-			updateChart();
-		};
-		reader.readAsText(file);
-	}
+        complete: function (results) {
 
-	function parseCSV(text) {
-		const lines = text.trim().split(/\r?\n/).filter(Boolean);
-		if (!lines.length) return [];
+            csvData = results.data;
 
-		const headers = lines[0].split(',').map(h => h.trim());
-		return lines.slice(1).map(line => {
-			const cols = line.split(',');
-			const obj = {};
-			headers.forEach((h, i) => obj[h] = (cols[i] || '').trim());
-			return obj;
-		});
-	}
+            const sensorIds = new Set();
 
-	function renderTable(data) {
-		tableHead.innerHTML = '';
-		tableBody.innerHTML = '';
-		if (!data.length) return;
+            csvData.forEach(row => {
 
-		const headers = Object.keys(data[0]);
-		const tr = document.createElement('tr');
-		headers.forEach(h => {
-			const th = document.createElement('th');
-			th.textContent = h;
-			tr.appendChild(th);
-		});
-		tableHead.appendChild(tr);
+                try {
 
-		data.forEach(row => {
-			const r = document.createElement('tr');
-			headers.forEach(h => {
-				const td = document.createElement('td');
-				td.textContent = row[h] ?? '';
-				r.appendChild(td);
-			});
-			tableBody.appendChild(r);
-		});
-	}
+                    let sensors = JSON.parse(row.sensors);
 
-	function populateDeviceSelect(data) {
-		// try common device column names
-		const deviceKeys = ['device', 'Device', 'deviceId', 'device_id', 'id'];
-		const headers = data.length ? Object.keys(data[0]) : [];
-		const deviceKey = headers.find(h => deviceKeys.includes(h)) || headers[0] || null;
+                    sensors.forEach(sensor => {
+                        sensorIds.add(sensor.id);
+                    });
 
-		const devices = new Set();
-		if (deviceKey) data.forEach(d => devices.add(d[deviceKey] || ''));
+                } catch (err) {
+                    console.log("JSON Error:", err);
+                }
+            });
 
-		// reset select
-		selectDevice.innerHTML = '';
-		const optAll = document.createElement('option');
-		optAll.value = '';
-		optAll.textContent = 'All Devices';
-		selectDevice.appendChild(optAll);
+            sensorSelect.innerHTML =
+                '<option value="">Select Sensor</option>';
 
-		Array.from(devices).filter(Boolean).forEach(dev => {
-			const opt = document.createElement('option');
-			opt.value = dev;
-			opt.textContent = dev;
-			selectDevice.appendChild(opt);
-		});
-	}
+            sensorIds.forEach(id => {
 
-	function findColumns(data) {
-		if (!data.length) return { timeKey: null, valueKey: null };
-		const headers = Object.keys(data[0]);
-		const timeCandidates = ['timestamp', 'time', 'date', 'ts'];
-		const valueCandidates = ['value', 'reading', 'temperature', 'temp', 'val'];
+                const option =
+                    document.createElement("option");
 
-		const timeKey = headers.find(h => timeCandidates.includes(h.toLowerCase()));
-		let valueKey = headers.find(h => valueCandidates.includes(h.toLowerCase()));
+                option.value = id;
+                option.textContent = id;
 
-		if (!valueKey) {
-			// fallback to first numeric column
-			for (const h of headers) {
-				if (data.some(r => r[h] && !isNaN(Number(r[h])))) {
-					valueKey = h;
-					break;
-				}
-			}
-		}
+                sensorSelect.appendChild(option);
+            });
+        }
+    });
+});
 
-		return { timeKey, valueKey };
-	}
+sensorSelect.addEventListener("change", function () {
 
-	function updateChart() {
-		if (!parsedData.length) return;
+    const selectedSensor = this.value;
 
-		const selectedDevice = selectDevice.value;
-		const timeRange = selectTimeRange.value; // 'all' or number
+    if (!selectedSensor) {
+        timestampText.textContent = "Timestamp: Select a sensor";
+        if (chart) {
+            chart.destroy();
+            chart = null;
+        }
+        return;
+    }
 
-		const { timeKey, valueKey } = findColumns(parsedData);
+    const timestamps = [];
+    const sensorValues = [];
 
-		let filtered = parsedData.filter(d => (selectedDevice ? Object.values(d).includes(selectedDevice) : true));
+    csvData.forEach(row => {
 
-		if (timeRange && timeRange !== 'all') {
-			const n = parseInt(timeRange, 10) || filtered.length;
-			filtered = filtered.slice(-n);
-		}
+        try {
 
-		const labels = [];
-		const values = [];
+            let sensors = JSON.parse(row.sensors);
 
-		filtered.forEach((row, idx) => {
-			const label = timeKey ? row[timeKey] : (idx + 1).toString();
-			labels.push(label);
-			const v = valueKey ? Number(row[valueKey]) : NaN;
-			values.push(isNaN(v) ? null : v);
-		});
+            const sensor = sensors.find(
+                s => s.id === selectedSensor
+            );
 
-		const datasets = [{
-			label: valueKey || 'Value',
-			data: values,
-			borderColor: 'rgba(75, 192, 192, 1)',
-			backgroundColor: 'rgba(75, 192, 192, 0.2)',
-			fill: false,
-		}];
+            if (sensor) {
 
-		if (chart) chart.destroy();
-		chart = new Chart(ctx, {
-			type: 'line',
-			data: { labels, datasets },
-			options: {
-				responsive: true,
-				scales: {
-					x: { display: true },
-					y: { display: true }
-				}
-			}
-		});
-	}
+                let time =
+                    row.createdAt ||
+                    row.timestamp ||
+                    row.time;
 
-	// Setup reasonable defaults for time-range select if empty
-	(function setupDefaults() {
-		if (selectTimeRange.options.length === 1) {
-			selectTimeRange.innerHTML = '';
-			const opts = [
-				{ v: 'all', t: 'All' },
-				{ v: '10', t: 'Last 10' },
-				{ v: '50', t: 'Last 50' },
-				{ v: '100', t: 'Last 100' }
-			];
-			opts.forEach(o => {
-				const opt = document.createElement('option');
-				opt.value = o.v;
-				opt.textContent = o.t;
-				selectTimeRange.appendChild(opt);
-			});
-		}
-	})();
+                const timeLabel = new Date(time).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                });
 
-})();
+                timestamps.push(
+                    timeLabel
+                );
+
+                sensorValues.push(sensor.data);
+            }
+
+        } catch (err) {
+            console.log(err);
+        }
+    });
+
+    timestampText.textContent =
+        timestamps.length > 0
+            ? `Timestamp: ${timestamps[timestamps.length - 1]}`
+            : "Timestamp: No data found";
+
+    drawChart(
+        timestamps,
+        sensorValues,
+        selectedSensor
+    );
+});
+
+function drawChart(labels, values, sensorId) {
+
+    const ctx =
+        document.getElementById("myChart");
+
+    if (chart) {
+        chart.destroy();
+    }
+
+    chart = new Chart(ctx, {
+
+        type: "line",
+
+        data: {
+
+            labels: labels,
+
+            datasets: [{
+                label: sensorId,
+                data: values,
+                tension: 0.3
+            }]
+        },
+
+        options: {
+
+            responsive: true,
+
+            interaction: {
+                intersect: false,
+                mode: "index"
+            },
+
+            plugins: {
+                legend: {
+                    display: true
+                }
+            },
+
+            scales: {
+
+                x: {
+                    title: {
+                        display: true,
+                        text: "Time"
+                    }
+                },
+
+                y: {
+                    title: {
+                        display: true,
+                        text: "Sensor Value"
+                    }
+                }
+            }
+        }
+    });
+}
