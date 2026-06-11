@@ -1,59 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-    <script src="script.js" defer></script>
-</head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor Graph</title>
 
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
 <body>
 
-    <h2>Dashboard</h2>
+    <h2>Sensor Data Graph</h2>
 
-    <!-- Upload zone -->
-    <div id="upload-zone">
-        <input type="file" id="file-input" accept=".csv" hidden />
-        <p>CSV file<button onclick="document.getElementById('file-input').click()">Choose File</button>
-        </p>
-        <!-- <p>Expected columns: device_id, local_timestamp,</p> -->
+    <input type="file" id="csvFile" >
+
+
+
+    <select id="sensorSelect">
+        <option value="">Select Sensor</option>
+    </select>
+
+    <p id="timestampText">Timestamp: Select a sensor</p>
+
+    <div id="chartContainer">
+        <canvas id="myChart"></canvas>
     </div>
 
-    <!-- Device / Sensor always visible -->
-    <div>
-        <label for="device-select">Device:</label>
-        <select id="device-select">
-            <option value="">— load a file —</option>
-        </select>
+    <script src="first.js"></script>
 
-        <label for="sensor-select">Sensor:</label>
-        <select id="sensor-select">
-            <option value="">— load a file —</option>
-        </select>
-    </div>
-
-    <!-- Export shown after data loads -->
-    <div id="controls" hidden>
-        <label>From: <input type="time" id="time-from" step="1" /></label>
-        <label>To: <input type="time" id="time-to" step="1" /></label>
-        <button id="export-btn">Export CSV</button>
-    </div>
-
-    <!-- Stat cards -->
-    <div id="cards" hidden>
-        <p>Latest Value: <strong id="stat-latest">—</strong></p>
-        <p>Average: <strong id="stat-avg">—</strong></p>
-        <p>Min: <strong id="stat-min">—</strong></p>
-        <p>Max: <strong id="stat-max">—</strong></p>
-        <p>Readings: <strong id="stat-count">—</strong></p>
-    </div>
-
-    <!-- Chart -->
-    <div id="chart-section" hidden>
-        <h3 id="chart-title">Sensor Data</h3>
-        <canvas id="chart-main" height="100"></canvas>
-    </div>
-
+</body>
 </html>
